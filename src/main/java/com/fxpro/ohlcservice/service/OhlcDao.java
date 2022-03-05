@@ -6,7 +6,7 @@ import com.fxpro.ohlcservice.OhlcPeriod;
 import java.util.List;
 
 /** Already implemented by your co-workers */
-interface OhlcDao {
+public interface OhlcDao {
 
     void store(Ohlc ohlc);
 

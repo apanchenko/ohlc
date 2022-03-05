@@ -13,6 +13,7 @@ import lombok.ToString;
 @Setter
 @ToString
 public class Ohlc {
+    private final long instrumentId;
     private final double openPrice;
     private double highPrice;
     private double lowPrice;
@@ -23,7 +24,8 @@ public class Ohlc {
      */
     private final long periodStart;
 
-    public Ohlc(double price, OhlcPeriod period, long periodStart) {
+    public Ohlc(long instrumentId, double price, OhlcPeriod period, long periodStart) {
+        this.instrumentId = instrumentId;
         this.openPrice = price;
         this.highPrice = price;
         this.lowPrice = price;

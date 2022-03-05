@@ -16,17 +16,20 @@ import java.util.Optional;
  * OhlcService implementation
  * @author Anton Panchenko
  */
-//@RequiredArgsConstructor//(onConstructor_ = @Autowired)
+@RequiredArgsConstructor
 @Service
 public class OhlcServiceImpl implements OhlcService {
 
-    //private final OhlcDao ohlcDao;
+    private final OhlcDao ohlcDao;
+
+    /**
+     * Map instrument to current OHLCs for each period
+     */
     public final Map<Long, Ohlc[]> currentCandles = new HashMap<>();
 
-    public OhlcServiceImpl() {
-        System.out.println("created OHLC service");
-    }
-
+    /**
+     * Latest non persisted OHLC
+     **/
     @Override
     public @Nullable Ohlc getCurrent(long instrumentId, OhlcPeriod period) {
         return Optional.ofNullable(currentCandles.get(instrumentId))
@@ -34,16 +37,28 @@ public class OhlcServiceImpl implements OhlcService {
             .orElse(null);
     }
 
+    /**
+     * All OHLCs which are kept in a database
+     **/
     @Override
     public List<Ohlc> getHistorical(long instrumentId, OhlcPeriod period) {
-        return null;
+        return ohlcDao.getHistorical(instrumentId, period);
     }
 
+    /**
+     * Latest non persisted OHLC and OHLCs which are kept in a database
+     **/
     @Override
     public List<Ohlc> getHistoricalAndCurrent(long instrumentId, OhlcPeriod period) {
-        return null;
+        var all = getHistorical(instrumentId, period);
+        Optional.ofNullable(getCurrent(instrumentId, period))
+            .ifPresent(current -> all.add(0, current));
+        return all;
     }
 
+    /**
+     * Receive a new quote
+     */
     @Override
     public void onQuote(Quote quote) {
         var price = quote.getPrice();
@@ -56,14 +71,15 @@ public class OhlcServiceImpl implements OhlcService {
                 var ohlc = candles[index];
                 long start = period.start(quote.getUtcTimestamp());
 
-                // close and save candle
+                // period changed - close and save candle
                 if (ohlc != null && ohlc.getPeriodStart() != start) {
+                    ohlcDao.store(ohlc);
                     ohlc = null;
                 }
 
                 // start new candle
                 if (ohlc == null) {
-                    candles[index] = new Ohlc(price, period, start);
+                    candles[index] = new Ohlc(instrumentId, price, period, start);
                 }
                 // update existing candle
                 else {
