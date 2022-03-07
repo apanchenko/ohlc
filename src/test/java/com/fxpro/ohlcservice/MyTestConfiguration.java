@@ -7,10 +7,12 @@ import lombok.Getter;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @TestConfiguration
 public class MyTestConfiguration {
@@ -33,9 +35,10 @@ public class MyTestConfiguration {
             }
 
             /**
-             * Map instrument and period to list of OHLCs
+             * Map instrument and period to list of OHLCs.
+             * User linked list for fast adding first element
              */
-            private Map<Key, List<Ohlc>> storage = new HashMap<>();
+            private final Map<Key, LinkedList<Ohlc>> storage = new HashMap<>();
 
             @Override
             public void store(Ohlc ohlc) {
@@ -43,9 +46,9 @@ public class MyTestConfiguration {
                     new Key(ohlc.getInstrumentId(), ohlc.getPeriod()),
                     (key, ohlcList) -> {
                         if (ohlcList == null) {
-                            ohlcList = new ArrayList<>();
+                            ohlcList = new LinkedList<>();
                         }
-                        ohlcList.add(ohlc);
+                        ohlcList.addFirst(ohlc);
                         return ohlcList;
                     }
                 );
@@ -54,7 +57,9 @@ public class MyTestConfiguration {
             @Override
             public List<Ohlc> getHistorical(long instrumentId, OhlcPeriod period) {
                 var key = new Key(instrumentId, period);
-                return storage.getOrDefault(key, List.of());
+                return Optional.ofNullable(storage.get(key))
+                    .map(Collections::unmodifiableList)
+                    .orElseGet(List::of);
             }
         };
     }

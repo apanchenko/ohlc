@@ -1,5 +1,7 @@
 package com.fxpro.ohlcservice;
 
+import lombok.Getter;
+
 public enum OhlcPeriod {
     /**
      * One minute, starts at 0 second of every minute
@@ -20,6 +22,7 @@ public enum OhlcPeriod {
         this.milliseconds = milliseconds;
     }
 
+    @Getter
     private final long milliseconds;
 
     public long start(long timestamp) {

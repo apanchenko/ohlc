@@ -7,7 +7,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,10 +52,15 @@ public class OhlcServiceImpl implements OhlcService {
      **/
     @Override
     public List<Ohlc> getHistoricalAndCurrent(long instrumentId, OhlcPeriod period) {
-        var all = getHistorical(instrumentId, period);
-        Optional.ofNullable(getCurrent(instrumentId, period))
-            .ifPresent(current -> all.add(0, current));
-        return all;
+        var historical = getHistorical(instrumentId, period);
+        return Optional.ofNullable(getCurrent(instrumentId, period))
+            .map(current -> {
+                List<Ohlc> all = new ArrayList<>(1 + historical.size());
+                all.add(current);
+                all.addAll(historical);
+                return all;
+            })
+            .orElse(historical);
     }
 
     /**
