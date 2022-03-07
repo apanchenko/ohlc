@@ -8,11 +8,10 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * OhlcService implementation
@@ -27,7 +26,7 @@ public class OhlcServiceImpl implements OhlcService {
     /**
      * Map instrument to current OHLCs for each period
      */
-    public final Map<Long, Ohlc[]> currentCandles = new HashMap<>();
+    public final Map<Long, Ohlc[]> currentCandles = new ConcurrentHashMap<>();
 
     /**
      * Latest non persisted OHLC
@@ -65,32 +64,37 @@ public class OhlcServiceImpl implements OhlcService {
 
     /**
      * Receive a new quote
+     * Stores current OHLC and starts a new one if period changed
+     * or updates current OHLC if period is the same
      */
     @Override
     public void onQuote(Quote quote) {
-        var price = quote.getPrice();
         currentCandles.compute(quote.getInstrumentId(), (instrumentId, candles) -> {
+            // new instrument
             if (candles == null) {
                 candles = new Ohlc[OhlcPeriod.values().length];
             }
+            // create or update OHLCs for each period
             for (var period : OhlcPeriod.values()) {
                 int index = period.ordinal();
                 var ohlc = candles[index];
                 long start = period.start(quote.getUtcTimestamp());
 
-                // period changed - close and save candle
+                // period changed - save current candle
                 if (ohlc != null && ohlc.getPeriodStart() != start) {
-                    ohlcDao.store(ohlc);
+                    synchronized (ohlcDao) {
+                        ohlcDao.store(ohlc);
+                    }
                     ohlc = null;
                 }
 
-                // start new candle
+                // start a new candle
                 if (ohlc == null) {
-                    candles[index] = new Ohlc(instrumentId, price, period, start);
+                    candles[index] = new Ohlc(instrumentId, quote.getPrice(), period, start);
                 }
                 // update existing candle
                 else {
-                    ohlc.update(price);
+                    ohlc.update(quote.getPrice());
                 }
             }
             return candles;

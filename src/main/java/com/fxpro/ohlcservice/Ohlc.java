@@ -1,6 +1,5 @@
 package com.fxpro.ohlcservice;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
@@ -19,6 +18,7 @@ public class Ohlc {
     private double lowPrice;
     private double closePrice;
     private final OhlcPeriod period;
+
     /**
      * UTC timestamp in milliseconds when this OHLC has been started
      */

@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 
 import java.util.Comparator;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
@@ -100,12 +102,46 @@ class OhlcServiceTests {
 	void testNextOhlcOpened() {
 		// Given
 		var instrumentId = 0L;
-		ohlcService.onQuote(new QuoteImpl(1.0, instrumentId, 0L));
-		ohlcService.onQuote(new QuoteImpl(2.0, instrumentId, 60_000L));
+		ohlcService.onQuote(new QuoteImpl(1.0, instrumentId, 0));
+		ohlcService.onQuote(new QuoteImpl(2.0, instrumentId, M1.getMilliseconds())); // next minute
 		// When
-		var ohlc = ohlcService.getCurrent(instrumentId, M1);
+		var currentOhlcM1 = ohlcService.getCurrent(instrumentId, M1);
 		// Then
-		assertThat(ohlc).returns(2.0, from(Ohlc::getOpenPrice));
+		assertThat(currentOhlcM1.getOpenPrice())
+			.as("next period started")
+			.isEqualTo(2.0);
+	}
+
+	@Test
+	void testCurrentH1Period() {
+		// Given
+		var instrumentId = 0L;
+		ohlcService.onQuote(new QuoteImpl(1.0, instrumentId, 0));
+		ohlcService.onQuote(new QuoteImpl(2.0, instrumentId, M1.getMilliseconds())); // next minute
+		// When
+		var currentOhlcH1 = ohlcService.getCurrent(instrumentId, H1);
+		// Then
+		assertThat(currentOhlcH1)
+			.as("current H1 period is correct while M1 period changed")
+			.returns(0L, from(Ohlc::getPeriodStart))
+			.returns(1.0, from(Ohlc::getLowPrice))
+			.returns(2.0, from(Ohlc::getHighPrice));
+	}
+
+	@Test
+	void testCurrentD1Period() {
+		// Given
+		var instrumentId = 0L;
+		ohlcService.onQuote(new QuoteImpl(1.0, instrumentId, 1646653866000L)); // Mon Mar 07 2022 11:51:06
+		ohlcService.onQuote(new QuoteImpl(2.0, instrumentId, 1646657466000L)); // Mon Mar 07 2022 12:51:06
+		// When
+		var currentOhlcD1 = ohlcService.getCurrent(instrumentId, D1);
+		// Then
+		assertThat(currentOhlcD1)
+			.as("current D1 period is correct while H1 period changed")
+			.returns(1646611200000L, from(Ohlc::getPeriodStart)) // Mon Mar 07 2022 00:00:00
+			.returns(1.0, from(Ohlc::getLowPrice))
+			.returns(2.0, from(Ohlc::getHighPrice));
 	}
 
 	@Test
@@ -147,7 +183,9 @@ class OhlcServiceTests {
 		// When
 		var historicalM = ohlcService.getHistorical(0, M1);
 		// Then
-		assertThat(historicalM).hasSize(quotes / instruments - 1);
+		assertThat(historicalM)
+			.hasSize(quotes / instruments - 1)
+			.isUnmodifiable();
 	}
 
 	@Test
@@ -169,31 +207,101 @@ class OhlcServiceTests {
 
 	@Test
 	void testSpeedSingleThread() {
+		// Given
 		long start = System.currentTimeMillis();
 		int quotes = 1_000_000;
 		int instruments = 1000;
 		LongStream.range(0, quotes)
-			.mapToObj(t -> new QuoteImpl(1, t % instruments, t * M1.getMilliseconds() / quotes))
+			.mapToObj(t -> new QuoteImpl(
+				t % instruments,
+				t % instruments,
+				t * M1.getMilliseconds() / quotes
+			))
 			.forEach(quote -> ohlcService.onQuote(quote));
-
+		// When
 		var spent = System.currentTimeMillis() - start;
 		System.out.printf("%d quotes processed in %d ms", quotes, spent);
+		var all = ohlcService.getHistoricalAndCurrent(0, M1);
+		// Then
+		assertThat(spent)
+			.as("processed sync %d quotes in less than a minute", quotes)
+			.isLessThan(M1.getMilliseconds());
+		assertThat(all)
+			.as("all OHLCs by one instrument is one candle")
+			.hasSize(1);
+	}
+
+	@Test
+	void testMultiThreadSinglePeriod() {
+		// Given
+		int quoteCount = 10_000_000;
+		int instrumentCount = 1000;
+		int threadCount = 10;
+		int quotesPerThread = quoteCount / threadCount;
+		var threads = IntStream.range(0, threadCount)
+			.mapToObj(i ->
+				new Thread(() ->
+					LongStream.range(0, quotesPerThread)
+						.mapToObj(q -> new QuoteImpl(1, q % instrumentCount, M1.getMilliseconds() * q / quotesPerThread))
+						.forEach(quote -> ohlcService.onQuote(quote))
+				)
+			)
+			.collect(Collectors.toList());
+		// When
+		long start = System.currentTimeMillis();
+		threads.forEach(Thread::start);
+		threads.forEach(t -> {
+			try {
+				t.join();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		});
+		var spent = System.currentTimeMillis() - start;
+		System.out.printf("%d quotes processed by %d threads in %d ms", quoteCount, threadCount, spent);
+		// Then
 		assertThat(spent)
 			.isLessThan(M1.getMilliseconds());
 	}
 
+	/**
+	 * By requirements, we assume:
+	 *   "utcTimestamp always coming in correct order (from the past to the future) per instrument"
+	 * so one instrument should come in the same thread
+	 * or else this assumption will be violated.
+	 */
 	@Test
-	void testSpeedMultiThread() {
+	void testMultiThreadManyPeriods() {
+		// Given
+		int quoteCount = 10_000_000;
+		int instrumentCount = 100; // one thread per instrument
+		var threads = IntStream.range(0, instrumentCount)
+			.mapToObj(instrument ->
+				new Thread(() ->
+					LongStream.range(0, quoteCount / instrumentCount)
+						.mapToObj(q -> new QuoteImpl(1, instrument, M1.getMilliseconds() * q))
+						.forEach(quote -> ohlcService.onQuote(quote))
+				)
+			)
+			.collect(Collectors.toList());
+		// When
 		long start = System.currentTimeMillis();
-		int quotes = 1_000_000;
-		int instruments = 1000;
-		LongStream.range(0, quotes)
-			.mapToObj(t -> new QuoteImpl(1, t % instruments, t * M1.getMilliseconds() / quotes))
-			.forEach(quote -> ohlcService.onQuote(quote));
-
+		threads.forEach(Thread::start);
+		threads.forEach(t -> {
+			try {
+				t.join();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		});
 		var spent = System.currentTimeMillis() - start;
-		System.out.printf("%d quotes processed in %d ms", quotes, spent);
-		assertThat(spent)
-			.isLessThan(M1.getMilliseconds());
+		var all = ohlcService.getHistoricalAndCurrent(0, M1);
+		// Then
+		System.out.printf("%d quotes processed by %d threads in %d ms", quoteCount, instrumentCount, spent);
+		assertThat(all)
+			.as("all OHLCs by one instrument")
+			.hasSize(quoteCount / instrumentCount)
+			.as("all OHLC sorted by periodStart descending")
+			.isSortedAccordingTo(Comparator.comparing(Ohlc::getPeriodStart).reversed());
 	}
 }

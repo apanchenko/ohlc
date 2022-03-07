@@ -36,7 +36,7 @@ public class MyTestConfiguration {
 
             /**
              * Map instrument and period to list of OHLCs.
-             * User linked list for fast adding first element
+             * Use linked list for fast adding first element
              */
             private final Map<Key, LinkedList<Ohlc>> storage = new HashMap<>();
 

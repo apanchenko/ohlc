@@ -31,10 +31,14 @@ class OhlcPeriodTests {
 		"H1, 1646478013456, 1646478000000",
 		"D1, 1646478013456, 1646438400000"
 	})
-	void testCurrentOhlcNoQuotes(String periodName, long timestamp, long start) {
+	void testCurrentOhlcNoQuotes(String periodName, long timestamp, long expectedStart) {
+		// Given
 		var period = OhlcPeriod.valueOf(periodName);
-		assertThat(period.start(timestamp))
-			.isEqualTo(start);
+		// When
+		var start = period.start(timestamp);
+		// Then
+		assertThat(start)
+			.isEqualTo(expectedStart);
 	}
 
 }
